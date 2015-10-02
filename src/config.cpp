@@ -450,14 +450,22 @@ void Config::loadConfig()
 		addError(m_buf);
 		return;
 	}
+	if (_tcslen(fullName) < 5)
+	{
+		_sntprintf(m_buf, sizeof(m_buf), _T("Incorrect exe path: %s"), fullName);
+		addError(m_buf);
+		return;
+	}
 	
-	LPTSTR slash = _tcsrchr(fullName,'\\');
+	/*LPTSTR slash = _tcsrchr(fullName,'\\');
 	if(slash)
 	{
 		*slash = 0;
 	}
 
-	_tcsncat(fullName, _T("\\LisaReloader.cfg"), MAX_PATH - _tcslen(fullName));
+	_tcsncat(fullName, _T("\\LisaReloader.cfg"), MAX_PATH - _tcslen(fullName));*/
+
+	_tcscpy(fullName + _tcslen(fullName) - 4, _T(".cfg"));
 
 	FILE * f = _tfopen(fullName, _T("rt"));
 	if(f)
