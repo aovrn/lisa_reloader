@@ -19,6 +19,7 @@
 HINSTANCE			hInst;			// The current instance
 HWND				hWnd;			// Main wnd
 HBITMAP				hSplash = NULL;
+BOOL				g_Show = TRUE;
 
 TCHAR g_CmdLine[1024];
 
@@ -32,7 +33,8 @@ int g_Pages = 1;
 int g_Lines = 0;
 int g_Size = 0;
 
-BOOL				g_LogMsg = FALSE;	
+Config::Section *	g_LogSection = NULL;	// Log section
+BOOL				g_WaitMsg = FALSE;
 
 unsigned long		g_StartTime = 0;
 
@@ -43,17 +45,34 @@ TCHAR *				g_PostWndList = NULL;	// Wnd list for PostWnd section
 unsigned long		g_PostWndItemSize = 64;
 unsigned long		g_PostWndCount = 0;		// Wnd list size
 
+struct MsgHandler
+{
+	unsigned long msg;
+	unsigned long wparam;
+	unsigned long lparam;
+	TCHAR * label;
+};
+MsgHandler			g_Handlers[100];
+unsigned long		g_HandlerCount = 0;
+
 // Forward declarations of functions included in this code module:
 ATOM				MyRegisterClass	(HINSTANCE, LPTSTR);
 BOOL				InitInstance	(HINSTANCE, int);
 LRESULT CALLBACK	WndProc			(HWND, UINT, WPARAM, LPARAM);
 LRESULT CALLBACK	About			(HWND, UINT, WPARAM, LPARAM);
 
-void KillCallback()
+void KillTimers()
 {
 	KillTimer(hWnd, TIMER_SECTION_START);
 	KillTimer(hWnd, TIMER_KILLWND_IT);
 	KillTimer(hWnd, TIMER_EXIT);
+	g_LogSection = NULL;
+	g_WaitMsg = FALSE;
+}
+
+void KillCallback()
+{
+	KillTimers();
 	except = true;
 }
 
@@ -73,9 +92,6 @@ int WINAPI WinMain(	HINSTANCE hInstance,
 	if (!InitInstance (hInstance, nCmdShow)) {
 		return FALSE;
 	}
-
-	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0,
-		config->settings().width, config->settings().height, SWP_SHOWWINDOW);
 
 	MSG msg;
 	while (GetMessage(&msg, NULL, 0, 0)) {
@@ -140,7 +156,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 	hWnd = FindWindow(szWindowClass, szTitle);
 	if (hWnd)
 	{
-		SetForegroundWindow((HWND)(((DWORD)hWnd) | 0x01));    
+		SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_SHOWWINDOW | SWP_NOSIZE | SWP_NOMOVE);
 		return 0;
 	}
 
@@ -152,7 +168,19 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 		return FALSE;
 	}
 
+	g_Show = !config->settings().minimize && !config->settings().hide;
+	if (config->settings().minimize)
+	{
+		nCmdShow = SW_MINIMIZE;
+	}
+	else if (config->settings().hide)
+	{
+		nCmdShow = SW_HIDE;
+	}
 	ShowWindow(hWnd, nCmdShow);
+	SetWindowPos(hWnd, HWND_TOPMOST, 0, 0,
+		config->settings().width, config->settings().height,
+		!g_Show ? SWP_NOACTIVATE | SWP_NOZORDER : SWP_SHOWWINDOW);
 	UpdateWindow(hWnd);
 
 	return TRUE;
@@ -162,7 +190,7 @@ BOOL InitInstance(HINSTANCE hInstance, int nCmdShow)
 
 void invalidate()
 {
-	if (hSplash == NULL)
+	if (hSplash == NULL && g_Show)
 	{
 		InvalidateRgn(hWnd, NULL, TRUE);
 	}
@@ -172,7 +200,11 @@ void setTimer(UINT id, UINT timeout, BOOL showwait = TRUE)
 {
 	TR_START
 
-	if (id != TIMER_KILLWND_IT)
+	if (section != NULL && section->stop)
+	{
+		messages.AddLast(_T("last section in chain; stopped"));
+	}
+	else if (id != TIMER_KILLWND_IT && timeout > 0)
 	{
 		TCHAR buf[64];
 		_sntprintf(buf, sizeof(buf), _T("waiting for %d msecs"), timeout);
@@ -184,7 +216,10 @@ void setTimer(UINT id, UINT timeout, BOOL showwait = TRUE)
 		invalidate();
 	}
 
-	SetTimer(hWnd, id, timeout, NULL);
+	if (section == NULL || !section->stop)
+	{
+		SetTimer(hWnd, id, timeout, NULL);
+	}
 
 	TR_END
 }
@@ -391,22 +426,31 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 	
 	static TCHAR buf[256];
 	
-	if (g_LogMsg)
+	if (g_LogSection != NULL)
 	{
-		BOOL bSkip = FALSE;
-		for (unsigned long it = 0; it < section->argc; ++it)
+		TR_START
+
+		// Process [LogMsg] section
+		if (g_LogSection->type != Config::esec::logmsg)
 		{
-			if (section->args[it].type == Config::earg::msg && section->args[it].ulValue == message)
+			messages.AddLast(_T("logmsg error: incorrect section"));
+			g_LogSection = NULL;
+			invalidate();
+		}
+		BOOL bSkip = FALSE;
+		for (unsigned long it = 0; it < g_LogSection->argc; ++it)
+		{
+			if (g_LogSection->args[it].type == Config::earg::msg && g_LogSection->args[it].ulValue == message)
 			{
 				bSkip = TRUE;
 				break;
 			}
-			if (section->args[it].type == Config::earg::wparam && section->args[it].ulValue == wParam)
+			if (g_LogSection->args[it].type == Config::earg::wparam && g_LogSection->args[it].ulValue == wParam)
 			{
 				bSkip = TRUE;
 				break;
 			}
-			if (section->args[it].type == Config::earg::lparam && (LPARAM)section->args[it].ulValue == lParam)
+			if (g_LogSection->args[it].type == Config::earg::lparam && (LPARAM)g_LogSection->args[it].ulValue == lParam)
 			{
 				bSkip = TRUE;
 				break;
@@ -415,10 +459,26 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 		
 		if (!bSkip)
 		{
-			_sntprintf(buf, sizeof(buf), _T("got: 0x%08x 0x%08x 0x%08x"), message, wParam, lParam);
+			switch (message)
+			{
+			case WM_WINDOWPOSCHANGED:
+				{
+					LPWINDOWPOS lpwp = LPWINDOWPOS(lParam);
+					_sntprintf(buf, sizeof(buf), _T("[msg] 0x%08x WM_WINDOWPOSCHANGED"), message, wParam, lParam);
+					messages.AddLast(buf);
+					_sntprintf(buf, sizeof(buf), _T("    ins: 0x%x; x: %d; y: %d; cx: %d; cy: %d; flags: 0x%08x"),
+						lpwp->hwndInsertAfter, lpwp->x, lpwp->y, lpwp->cx, lpwp->cy, lpwp->flags);
+				}
+				break;
+			default:
+				_sntprintf(buf, sizeof(buf), _T("[msg] 0x%08x 0x%08x 0x%08x"), message, wParam, lParam);
+				break;
+			}
 			messages.AddLast(buf);
 			invalidate();
 		}
+
+		TR_END
 	}
 
 	switch (message)
@@ -450,6 +510,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				}
 				else
 				{
+					KillTimers();
 					PostMessage(hWnd, WM_CLOSE, 0, 0);
 				}
 			}
@@ -499,7 +560,6 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 
 			if (config->settings().splash != NULL)
 			{
-				//hSplash = (HBITMAP)LoadImage(NULL, config->settings().splash, IMAGE_BITMAP, 0, 0, 0);
 				hSplash = (HBITMAP)SHLoadDIBitmap(config->settings().splash);
 				if (hSplash == NULL)
 				{
@@ -508,6 +568,7 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				}
 			}
 			SetTimer(hWnd, TIMER_SECTION_START, 0, NULL);
+
 			TR_END
 			break;
 		case WM_PAINT:
@@ -576,6 +637,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			KillTimer(hWnd, wParam);
 			if (wParam == TIMER_SECTION_START)
 			{
+				TR_START
+				// PROCESS NEW SECTION
 				section = config->nextSection();
 				if (section == NULL)
 				{
@@ -585,7 +648,8 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				switch (section->type)
 				{
 				case Config::esec::error:
-				{
+					TR_START
+					// Process [Error] section
 					if (section->argc == 0)
 					{
 						SetTimer(hWnd, TIMER_SECTION_START, 0, NULL);
@@ -604,14 +668,18 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					messages.AddLast(_T(""));
 
 					setTimer(TIMER_EXIT, section->wait);
+					TR_END
 					break;
-				}
 				case Config::esec::listwnd:
+					TR_START
+					// Process [Error] section
 					listWnds();
 					setTimer(TIMER_SECTION_START, section->wait);
+					TR_END
 					break;
 				case Config::esec::listproc:
-				{
+					TR_START
+					// Process [ListProc] section
 					TCHAR * proc = NULL;
 					for (unsigned long it = 0; it < section->argc; ++it)
 					{
@@ -623,13 +691,13 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					}
 					showProcs(NULL, proc);
 					setTimer(TIMER_SECTION_START, section->wait);
+					TR_END
 					break;
-				}
 				case Config::esec::postwnd:
-				{
+					TR_START
+					// Process [PostWnd] section
 					messages.AddLast(_T(""));
 					messages.AddLast(_T("[PostWnd]"));
-					
 					
 					g_PostMsg = 0;
 					g_PostWParam = 0;
@@ -659,7 +727,10 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					g_PostWndList = (TCHAR *)malloc(g_PostWndItemSize * g_PostWndCount * sizeof(TCHAR));
 					memset(g_PostWndList, 0, g_PostWndItemSize * g_PostWndCount * sizeof(TCHAR));
 					
-					for (unsigned long j = 0, it; j < section->argc; ++j)
+					_sntprintf(buf, sizeof(buf), _T("0x%08x 0x%08x 0x%08x"), g_PostMsg, g_PostWParam, g_PostLParam);
+					messages.AddLast(buf);
+					
+					for (unsigned long j = 0, it = 0; j < section->argc; ++j)
 					{
 						if (section->args[j].type == Config::earg::wnd)
 						{
@@ -673,21 +744,37 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 							
 							if (PostMessage(hWnd, g_PostMsg, g_PostWParam, g_PostLParam))
 							{
-								_tcsncpy(&g_PostWndList[g_PostWndItemSize * (it++)], section->args[j].szValue, g_PostWndItemSize - 1);
+								if (section->timeout > 0)
+								{
+									_tcsncpy(&g_PostWndList[g_PostWndItemSize * (it++)], section->args[j].szValue, g_PostWndItemSize - 1);
+								}
+								else
+								{
+									_sntprintf(buf, sizeof(buf), _T("sent to '%s'"), section->args[j].szValue);
+									messages.AddLast(buf);
+								}
 							}
 							else
 							{
-								_sntprintf(buf, sizeof(buf), _T("PostMessage: 0x%08X '%s'"), GetLastError(), GetLastError(), section->args[j].szValue);
+								_sntprintf(buf, sizeof(buf), _T("PostMessage: 0x%08X '%s'"), GetLastError(), section->args[j].szValue);
 								messages.AddLast(buf);
 							}
 						}
 					}
 
-					setTimer(TIMER_KILLWND_IT, TIMEOUT);
+					if (section->timeout > 0)
+					{
+						setTimer(TIMER_KILLWND_IT, TIMEOUT);
+					}
+					else
+					{
+						setTimer(TIMER_SECTION_START, section->wait);
+					}
+					TR_END
 					break;
-				}
 				case Config::esec::killproc:
-				{
+					TR_START
+					// Process [KillProc] section
 					messages.AddLast(_T(""));
 					messages.AddLast(_T("[KillProc]"));
 
@@ -740,10 +827,11 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					}
 					free(list);
 					setTimer(TIMER_SECTION_START, section->wait);
+					TR_END
 					break;
-				}
 				case Config::esec::startproc:
-				{
+					TR_START
+					// Process [StartProc] section
 					messages.AddLast(_T(""));
 					messages.AddLast(_T("[StartProc]"));
 
@@ -767,25 +855,151 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 					}
 
 					setTimer(TIMER_SECTION_START, section->wait);
+					TR_END
 					break;
-				}
 				case Config::esec::logmsg:
+					TR_START
+					// Process [LogMsg] section
 					messages.AddLast(_T(""));
 					messages.AddLast(_T("[LogMsg]"));
-					g_LogMsg = TRUE;
+					g_LogSection = section;
+					setTimer(TIMER_SECTION_START, section->wait);
+					TR_END
+					break;
+				case Config::esec::regmsg:
+					TR_START
+					// Process [RegMsg] section
+					messages.AddLast(_T(""));
+					messages.AddLast(_T("[RegMsg]"));
+
+					if (g_HandlerCount == 100)
+					{
+						_sntprintf(buf, sizeof(buf), _T("error: maximum message handlers is %d"), g_HandlerCount);
+						messages.AddLast(buf);
+					}
+					else
+					{
+						MsgHandler h;
+						h.msg = 0;
+						h.wparam = 0xFFFFFFFF;
+						h.lparam = 0xFFFFFFFF;
+						h.label = NULL;
+						for (unsigned long i = 0; i < section->argc; ++i)
+						{
+							if (section->args[i].type == Config::earg::msg)
+							{
+								h.msg = section->args[i].ulValue;
+							}
+							else if (section->args[i].type == Config::earg::wparam)
+							{
+								h.wparam = section->args[i].ulValue;
+							}
+							else if (section->args[i].type == Config::earg::lparam)
+							{
+								h.lparam = section->args[i].ulValue;
+							}
+							else if (section->args[i].type == Config::earg::handler)
+							{
+								h.label = section->args[i].szValue;
+							}
+						}
+						if (h.msg == 0 || h.label == NULL)
+						{
+							_sntprintf(buf, sizeof(buf), _T("error register handler: invalid args"));
+							messages.AddLast(buf);
+						}
+						else
+						{
+							g_Handlers[g_HandlerCount] = h;
+							++g_HandlerCount;
+
+							_sntprintf(buf, sizeof(buf), _T("handler[%d]: '%s'"), g_HandlerCount, h.label);
+							messages.AddLast(buf);
+							_sntprintf(buf, sizeof(buf), _T("0x%08x 0x%08x 0x%08x"), h.msg, h.wparam, h.lparam);
+							messages.AddLast(buf);
+						}
+					}
+					setTimer(TIMER_SECTION_START, section->wait);
+					TR_END
+					break;
+				case Config::esec::waitmsg:
+					TR_START
+					// Process [WaitMsg] section
+					messages.AddLast(_T(""));
+					messages.AddLast(_T("[WaitMsg]"));
+					g_WaitMsg = TRUE;
 					invalidate();
+					TR_END
+					break;
+				case Config::esec::exitapp:
+					TR_START
+					// Process [ExitApp] section
+					messages.AddLast(_T(""));
+					messages.AddLast(_T("[Exit]"));
+					setTimer(TIMER_EXIT, section->wait);
+					TR_END
+					break;
+
+				case Config::esec::input:
+					TR_START
+					// Process [Input] section
+					messages.AddLast(_T(""));
+					messages.AddLast(_T("[Input]"));
+						
+					for (unsigned long i = 0; i < section->argc; ++i)
+					{
+						if (section->args[i].type == Config::earg::keydown)
+						{
+							_sntprintf(buf, sizeof(buf), _T("keydown 0x%02x"), (unsigned char)section->args[i].ulValue);
+							messages.AddLast(buf);
+							keybd_event((unsigned char)section->args[i].ulValue, 0, 0, 0);
+						}
+						else if (section->args[i].type == Config::earg::keyup)
+						{
+							_sntprintf(buf, sizeof(buf), _T("keyup 0x%02x"), (unsigned char)section->args[i].ulValue);
+							messages.AddLast(buf);
+							keybd_event((unsigned char)section->args[i].ulValue, 0, KEYEVENTF_KEYUP, 0);
+						}
+						else if (section->args[i].type == Config::earg::sleep)
+						{
+							if (section->args[i].ulValue > 1000)
+							{
+								messages.AddLast(_T("sleep interval is too big, use different section"));
+							}
+							else
+							{
+								_sntprintf(buf, sizeof(buf), _T("sleep for %u"), section->args[i].ulValue);
+								messages.AddLast(buf);
+								Sleep(section->args[i].ulValue);
+							}
+						}
+					}
+
+					setTimer(TIMER_SECTION_START, section->wait);
+					TR_END
 					break;
 
 				default:
+					TR_START
+					// Process unknown section
 					messages.AddLast(_T(""));
 					messages.AddLast(_T(""));
 					messages.AddLast(_T("Unknown section... Exiting..."));
 					SetTimer(hWnd, TIMER_EXIT, 1000, NULL);
+					TR_END
 					break;
 				}
+				TR_END
 			}
 			else if (wParam == TIMER_KILLWND_IT)
 			{
+				TR_START
+				// Step 2 of [PostWnd]
+				if (section == NULL)
+				{
+					messages.AddLast(_T("Step 2 of [PostWnd] error: section is NULL..."));
+					break;
+				}
 				BOOL timeout = section->timeout > 0 && GetTickCount() - g_StartTime > section->timeout;
 				
 				unsigned int closed = 0;
@@ -824,10 +1038,14 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 				{
 					setTimer(TIMER_KILLWND_IT, TIMEOUT);
 				}
+				TR_END
 			}
 			else if (wParam == TIMER_EXIT)
 			{
+				TR_START
+				KillTimers();
 				PostMessage(hWnd, WM_CLOSE, 0, 0);
+				TR_END
 			}
 
 			TR_END
@@ -837,7 +1055,47 @@ LRESULT CALLBACK WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam)
 			PostQuitMessage(0);
 			break;
 		default:
+		{
+			if (g_WaitMsg)
+			{
+				TR_START
+				// Handle registered mesasges
+				for (unsigned long it = 0; it < g_HandlerCount; ++it)
+				{
+					if (g_Handlers[it].msg == message &&
+						(g_Handlers[it].wparam == 0xFFFFFFFF || g_Handlers[it].wparam == wParam) &&
+						(g_Handlers[it].lparam == 0xFFFFFFFF || g_Handlers[it].lparam == (unsigned long)lParam))
+					{
+						messages.AddLast(_T(""));
+						messages.AddLast(_T("[WaitMsg]"));
+						_sntprintf(buf, sizeof(buf), _T("got: 0x%08x 0x%08x 0x%08x"), message, wParam, lParam);
+						messages.AddLast(buf);
+						if(config->seekToSection(g_Handlers[it].label))
+						{
+							_sntprintf(buf, sizeof(buf), _T("jump to '%s'"), g_Handlers[it].label);
+							messages.AddLast(buf);
+							section = NULL;
+							KillTimer(hWnd, TIMER_SECTION_START);
+							KillTimer(hWnd, TIMER_KILLWND_IT);
+							setTimer(TIMER_SECTION_START, 0);
+							break;
+						}
+						else
+						{
+							_sntprintf(buf, sizeof(buf), _T("not found '%s'"), g_Handlers[it].label);
+							messages.AddLast(buf);
+							invalidate();
+						}
+					}
+				}
+				TR_END
+			}
+			if (message == WM_WINDOWPOSCHANGED && (((LPWINDOWPOS)lParam)->flags & SWP_SHOWWINDOW))
+			{
+				g_Show = TRUE;
+			}
 			return DefWindowProc(hWnd, message, wParam, lParam);
+		}
    }
 
    return 0;

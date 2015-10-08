@@ -6,6 +6,7 @@ class Config
 public:
 	enum earg
 	{
+		label,
 		wait,
 		timeout,
 		print,
@@ -14,7 +15,12 @@ public:
 		path,
 		msg,
 		wparam,
-		lparam
+		lparam,
+		handler,
+		stop,
+		keydown,
+		keyup,
+		sleep
 	};
 
 	enum esec
@@ -25,7 +31,11 @@ public:
 		postwnd,
 		killproc,
 		startproc,
-		logmsg
+		logmsg,
+		regmsg,
+		waitmsg,
+		exitapp,
+		input
 	};
 
 	struct Argument
@@ -44,6 +54,8 @@ public:
 		unsigned long argc;
 		unsigned long allocated_argc;
 		LPTSTR name;
+		LPTSTR label;
+		BOOL stop;
 	};
 
 	struct Settings
@@ -51,6 +63,8 @@ public:
 		unsigned long width;
 		unsigned long height;
 		LPTSTR splash;
+		BOOL minimize;
+		BOOL hide;
 		LPTSTR wclass;
 		LPTSTR wtitle;
 	};
@@ -59,6 +73,7 @@ public:
 
 	Section * currentSection();
 	Section * nextSection();
+	BOOL seekToSection(LPCTSTR label);
 	Settings& settings();
 
 protected:
@@ -80,6 +95,7 @@ private:
 	unsigned long	m_line;
 	TCHAR			m_buf[256];
 	Settings		m_settings;
+	BOOL			m_seek;
 
 };
 
