@@ -16,19 +16,26 @@ public:
 		msg,
 		wparam,
 		lparam,
+		usesend,
+		action,
+		flags,
 		handler,
+		onerror,
 		stop,
 		keydown,
 		keyup,
-		sleep
+		sleep,
+		check
 	};
 
 	enum esec
 	{
 		error,
 		listwnd,
-		listproc,
 		postwnd,
+		findwnd,
+		setwnd,
+		listproc,
 		killproc,
 		startproc,
 		logmsg,
@@ -42,7 +49,9 @@ public:
 	{
 		earg type;
 		LPTSTR szValue;
+		LPTSTR szValue2;
 		unsigned long ulValue;
+		BOOL bValue;
 	};
 
 	struct Section
@@ -67,6 +76,10 @@ public:
 		BOOL hide;
 		LPTSTR wclass;
 		LPTSTR wtitle;
+		LPTSTR separator;
+		LPTSTR quote;
+		BOOL second_noactivate;
+		BOOL second_noexit;
 	};
 
 	static Config * getInstance();
@@ -86,6 +99,10 @@ protected:
 	void addArgument(Section * section, LPCTSTR name, LPCTSTR value);
 	void addSetting(LPCTSTR name, LPCTSTR value);
 	void addError(LPCTSTR value);
+	BOOL readYesNo(LPCTSTR value, BOOL * arg);
+	BOOL readULong(LPCTSTR value, unsigned long * arg);
+	BOOL readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2 = NULL);
+	TCHAR * trimQuotes(LPTSTR value);
 
 private:
 	Section *		m_sections;
