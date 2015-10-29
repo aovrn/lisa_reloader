@@ -34,18 +34,33 @@
     Строки могут быть следующего типа:
  2.1. Пустая строка (содержащая только пробельные символы) -- пропускается;
  2.2. Комментарий (строка начинающаяся с ; или #) -- пропускается;
- 2.3. Аргумент name=value
- 2.3.1 Имя аргумента регистронезависимо, пробельные символы для name и value
+ 2.3. Секция [name]
+ 2.3.1 Имя секции регистронезависимо
+ 2.4. Аргумент name=value
+ 2.4.1 Имя аргумента регистронезависимо, пробельные символы для name и value
        также отсекаются;
- 2.3.2 Целочисленные аргументы задаются как в десятичном так и
+ 2.4.2 Целочисленные аргументы задаются как в десятичном так и
        в шеснадцатиричном виде, например, arg = 0x10 или arg = 16;
- 2.3.3 Строковые аргументы могут иметь сразу два значения: arg = val1; val2
+ 2.4.3 Строковые аргументы могут иметь сразу два значения: arg = val1; val2
        Например, Wnd = Window Class; Window Title
- 2.3.4 При необходимости можно указать строку с крайними пробельными символами
+ 2.4.4 При необходимости можно указать строку с крайними пробельными символами
        таким образом: Wnd = ' Window Class '; 'Window Title    '
- 2.3.5 Булевские аргументы могут принимать только значения yes и no
- 2.4. Секция [name]
- 2.4.1 Имя секции регистронезависимо
+ 2.4.5 Булевские аргументы могут принимать только значения yes и no
+ 2.4.6 Строковые аргументы могут включать переменные в виде ${name:default}
+       Где name имя переменной, default - значение по умолчанию. Переменные
+       хранятся в памяти приложения. Если переменная при обращении
+       не найдена в памяти, будет попытка считать ее с диска из файла
+       <каталог_приложения>\state\name.state
+       Если считать из файла не удалось, будет использано значение по умолчанию
+       Есть системная переменная $args, хранящая в себе параметры, с которыми
+       запущено приложение.
+       Пример использования переменных:
+       
+         [StartProc]
+         path = \Storage Card\${lastapp;notepad.exe}; $args
+         
+       ВНИМАНИЕ!!! На данный момент переменные могут использоваться
+       только в конкретных секциях, смотрите ниже
    
 -------------------------------------------------------------------------------
  1. НАСТРОЙКИ
@@ -102,34 +117,46 @@
 -------------------------------------------------------------------------------
  error              Служебная секция. Нельзя использовать
 -------------------------------------------------------------------------------
+ Wait               Секция ничего не делает (можно ждать с аргументом wait)
+-------------------------------------------------------------------------------
+ Stop               Секция останавливает обработку скрипта
+-------------------------------------------------------------------------------
+ Exit               Завершение работы
+-------------------------------------------------------------------------------
  ListWnd            Отобразить список всех окон
 -------------------------------------------------------------------------------
  PostWnd            Отправить сообщение msg с параметрами wParam и lParam окну
     timeout = 0     или окнам wnd (смотри описание аргумента wnd), используя
     wnd ...         PostMessage.
-    msg = 0x0       Если указан timeout больший нуля, то ждем завершения
+    msg = 0x0         Если указан timeout больший нуля, то ждем завершения
     wParam = 0x0    приложения, которому отправили сообщение, полезно
     lParam = 0x0    при отправлении WM_CLOSE. 
-    useSend = no    Если useSend = yes, используем SendMessage вместо
-    onError         PostMessage.
-                    Если onError указан, в случае ошибки функций FindWindow или
-                    PostMessage переходим к указанной секции.
+    useSend = no      Если useSend = yes, используем SendMessage вместо
+    onSuccess       PostMessage.
+    onError           Если onSuccess указан, в случае успеха переходим
+                    к указанной секции.
+                      Если onError указан, в случае ошибки функций FindWindow
+                    или PostMessage переходим к указанной секции.
 -------------------------------------------------------------------------------
  FindWnd            Искать окно или окна wnd.
-    wnd ...         Варианты check:
+    wnd ...           Варианты check:
     check               foreground   - GetForegroundWindow
-    onError         Если onError указан и FindWindow не нашел хотя бы одно окно
-                    или не пройдена проверка check переходим к указанной
+    onSuccess         Если onSuccess указан, в случае успеха переходим
+    onError         к указанной секции.
+                      Если onError указан и FindWindow не нашел хотя бы одно
+                    окно или не пройдена проверка check переходим к указанной
                     секции.
 -------------------------------------------------------------------------------
  SetWnd             Выполняем action для окна или окон wnd.
-    action !        Варианты action:
+    action !          Варианты action:
     wnd ...             show         - ShowWindow, flags - второй параметр
     flags = 0x0         foreground   - SetForegroundWindow 
-                        focus        - SetFocus
-                    Если onError указан и FindWindow не нашел хотя бы одно окно
-                    или соответствующая функция вернула ошибку, переходим к
-                    указанной секции
+    onSuccess           focus        - SetFocus
+    onError           Если onSuccess указан, в случае успеха переходим
+                    к указанной секции.
+                      Если onError указан и FindWindow не нашел хотя бы одно
+                    окно или соответствующая функция вернула ошибку, переходим
+                    к указанной секции
 -------------------------------------------------------------------------------
  ListProc           Отобразать список всех процессов
     proc            Если указан proc, отобразить список окон этого процесса
@@ -137,13 +164,20 @@
 -------------------------------------------------------------------------------
  KillProc           Убить процессы, перечисленные в proc, используя
     proc ...        TerminateProcess.
-    onError         Если onError указан и OpenProcess или TerminateProcess
+    onSuccess         Если onSuccess указан, в случае успеха переходим
+    onError         к указанной секции.
+                      Если onError указан и OpenProcess или TerminateProcess
                     вернули ошибку переходим к указанной секции
 -------------------------------------------------------------------------------
  StartProc          Запустить процессы с параметрами, перечисленные в path,
     path ...        используя CreateProcess. 
-    onError         Если onError указан и CreateProcess вернули ошибку
+    onSuccess         Если onSuccess указан, в случае успеха переходим
+    onError         к указанной секции.
+                      Если onError указан и CreateProcess вернули ошибку
                     переходим к указанной секции
+                      В секции могут использоваться переменные в первой части
+                    аргумента path, во второй части path может использоваться
+                    только системная переменная $args
 -------------------------------------------------------------------------------
  LogMsg             Логировать все сообщения, кроме указанных в msg.
     msg ...         Также пропускать все сообщения, параметры которых равны
@@ -162,10 +196,21 @@
  Input              Симулировать ввод с клавиатуры с помощью keybd_event.
     keyDown ...     Действия выполняются последовательно в том порядке,
     keyUp ...       как они указаны. Действий может быть сколько угодно.
-    sleep ...       Значения keyDown и keyUp - 0x0 - 0xFF
-                    Значение sleep - время задержки
+    sleep ...         Значения keyDown и keyUp - 0x0 - 0xFF
+                      Значение sleep - время задержки
 -------------------------------------------------------------------------------
- Exit               Завершение работы
+ Save               Сохранить значение value в переменные с именами name
+    name ...          Если flush имеет значение yes, то переменные с именами
+    value           name сохранятся в файлы <каталог_приложения>\state\*.state
+    flush = no      При этом value указывать не обязательно, сохранение на диск
+                    будет с предыдущими значениями
+-------------------------------------------------------------------------------
+-------------------------------------------------------------------------------
+ Time               Работа со временем.
+    mshift            mshift -- сдвиг времени в минутах относительно текущего
+    tz              может быть как положительным, так и отрицательным
+                      tz -- имя таймзоны, например, Russian Standard Time
+                    Ниже смотрите информацию по таймзонам
 -------------------------------------------------------------------------------
 
 
@@ -183,11 +228,13 @@
  stop = no          Может быть в любой секции. Говорит о том, что секция
                     является последней, т.е. остановить выполнение скрипта.
 -------------------------------------------------------------------------------
+ jump               Может быть в любой секции. Метка безусловного перехода.
+-------------------------------------------------------------------------------
  timeout            Время в миллисекундах
 -------------------------------------------------------------------------------
- wnd                Строка с двумя значениями, первое -- это класс окна,
-                    второе -- это заголовок окна.
-                    Пример: Wnd = LISA_RELOADER; Lisa Reloader
+ wnd                Строка с тремя значениями, первое -- это класс окна,
+                    второе -- это заголовок окна, третье -- имя процесса.
+                    Пример: Wnd = LISA_RELOADER; Lisa Reloader; LReloader.exe
 -------------------------------------------------------------------------------
  msg                Любое пользовательское или системное сообщение Windows.
                     Например, WM_CLOSE - 0x10
@@ -210,6 +257,10 @@
                     исполняемого файла, второе -- это параметры запуска.
                     Пример: Wnd = \Storage Card\LisaReloader.exe; arg1 arg2
 -------------------------------------------------------------------------------
+ onSuccess          Метка обработчика ошибок. При успешном выполнении текущей
+                    секции вместо перехода к следующей секции переходим
+                    в указанную.
+-------------------------------------------------------------------------------
  onError            Метка обработчика ошибок. При возникновении ошибки вместо
                     перехода к следующей секции переходим в указанную.
 -------------------------------------------------------------------------------
@@ -221,4 +272,105 @@
 -------------------------------------------------------------------------------
  sleep              Время в миллисекундах
 -------------------------------------------------------------------------------
- 
+ name               Имя переменной
+-------------------------------------------------------------------------------
+ value              Значение переменной
+-------------------------------------------------------------------------------
+ flush              Выгрузить изменения на диск
+-------------------------------------------------------------------------------
+ mshift             Сдвиг времени в минутах. Может быть как положительным,
+                    так и отрицательным
+-------------------------------------------------------------------------------
+ tz                 Название таймзоны. Информацию по таймзонам смотрите ниже
+-------------------------------------------------------------------------------
+
+
+-------------------------------------------------------------------------------
+ ПРИЛОЖЕНИЕ 1. Таймзоны
+-------------------------------------------------------------------------------
+В Win CE таймзоны перечислены в реестре по пути HKEY_LOCAL_MACHINE\Time Zones\
+Для справки приведены таймзоны взятые с ШГУ с прошивкой 7.5.8
+В скриптах нужно указывать значение из второй колонки
+
+(GMT+13:00) Nuku'alofa                          Tonga Standard Time
+(GMT+12:00) Auckland, Wellington                New Zealand Standard Time
+(GMT+12:00) Fiji, Kamchatka, Marshall Is.       Fiji Standard Time
+(GMT+11:00) Magadan, Solomon Is., New Caledonia Central Pacific Standard Time
+(GMT+10:00) Guam, Port Moresby                  West Pacific Standard Time
+(GMT+10:00) Vladivostok                         Vladivostok Standard Time
+(GMT+10:00) Hobart                              Tasmania Standard Time
+(GMT+10:00) Brisbane                            E. Australia Standard Time
+(GMT+10:00) Canberra, Melbourne, Sydney         AUS Eastern Standard Time
+(GMT+09:30) Adelaide                            Cen. Australia Standard Time
+(GMT+09:30) Darwin                              AUS Central Standard Time
+(GMT+09:00) Yakutsk                             Yakutsk Standard Time
+(GMT+09:00) Osaka, Sapporo, Tokyo               Tokyo Standard Time
+(GMT+09:00) Seoul                               Korea Standard Time
+(GMT+08:00) Kuala Lumpur, Singapore             Singapore Standard Time
+(GMT+08:00) Irkutsk, Ulaan Bataar               North Asia East Standard Time
+(GMT+08:00) Perth                               W. Australia Standard Time
+(GMT+08:00) Taipei                              Taipei Standard Time
+(GMT+08:00) Beijing, Chongqing, Hong Kong, ...  China Standard Time
+(GMT+07:00) Krasnoyarsk                         North Asia Standard Time
+(GMT+07:00) Bangkok, Hanoi, Jakarta             SE Asia Standard Time
+(GMT+06:30) Yangon (Rangoon)                    Myanmar Standard Time
+(GMT+06:00) Almaty, Novosibirsk                 N. Central Asia Standard Time
+(GMT+06:00) Astana, Dhaka                       Central Asia Standard Time
+(GMT+05:45) Kathmandu                           Nepal Standard Time
+(GMT+05:30) Sri Jayawardenepura                 Sri Lanka Standard Time
+(GMT+05:30) Chennai, Kolkata, Mumbai, New Delhi India Standard Time
+(GMT+05:00) Islamabad, Karachi, Tashkent        West Asia Standard Time
+(GMT+05:00) Ekaterinburg                        Ekaterinburg Standard Time
+(GMT+04:30) Kabul                               Afghanistan Standard Time
+(GMT+04:00) Baku                                Azerbaijan Standard Time
+(GMT+04:00) Yerevan                             Caucasus Standard Time
+(GMT+04:00) Abu Dhabi, Muscat                   Arabian Standard Time
+(GMT+03:30) Tehran                              Iran Standard Time
+(GMT+03:00) Tbilisi                             Georgian Standard Time
+(GMT+03:00) Baghdad                             Arabic Standard Time
+(GMT+03:00) Nairobi                             E. Africa Standard Time
+(GMT+03:00) Kuwait, Riyadh                      Arab Standard Time
+(GMT+03:00) Moscow, St. Petersburg, Volgograd   Russian Standard Time
+(GMT+02:00) Beirut                              Middle East Standard Time
+(GMT+02:00) Amman                               Jordan Standard Time
+(GMT+02:00) Windhoek                            Namibia Standard Time
+(GMT+02:00) Jerusalem                           Israel Standard Time
+(GMT+02:00) Harare, Pretoria                    South Africa Standard Time
+(GMT+02:00) Athens, Bucharest, Istanbul         GTB Standard Time
+(GMT+02:00) Helsinki, Kyiv, Riga, Sofia, ...    FLE Standard Time
+(GMT+02:00) Cairo                               Egypt Standard Time
+(GMT+02:00) Minsk                               E. Europe Standard Time
+(GMT+01:00) West Central Africa                 W. Central Africa Standard Time
+(GMT+01:00) Amsterdam, Berlin, Bern, Rome, ...  W. Europe Standard Time
+(GMT+01:00) Brussels, Copenhagen, Madrid, Paris Romance Standard Time
+(GMT+01:00) Sarajevo, Skopje, Warsaw, Zagreb    Central European Standard Time
+(GMT+01:00) Belgrade, Bratislava, Budapest...   Central Europe Standard Time
+(GMT) Casablanca, Monrovia, Reykjavik           Greenwich Standard Time
+(GMT) Greenwich Mean Time : Dublin, ...         GMT Standard Time
+(GMT-01:00) Cape Verde Is.                      Cape Verde Standard Time
+(GMT-01:00) Azores                              Azores Standard Time
+(GMT-02:00) Mid-Atlantic                        Mid-Atlantic Standard Time
+(GMT-03:00) Greenland                           Greenland Standard Time
+(GMT-03:00) Buenos Aires, Georgetown            SA Eastern Standard Time
+(GMT-03:00) Brasilia                            E. South America Standard Time
+(GMT-03:30) Newfoundland                        Newfoundland Standard Time
+(GMT-04:00) Manaus                              Central Brazilian Standard Time
+(GMT-04:00) Santiago                            Pacific SA Standard Time
+(GMT-04:00) Caracas, La Paz                     SA Western Standard Time
+(GMT-04:00) Atlantic Time (Canada)              Atlantic Standard Time
+(GMT-05:00) Bogota, Lima, Quito, Rio Branco     SA Pacific Standard Time
+(GMT-05:00) Indiana (East)                      US Eastern Standard Time
+(GMT-05:00) Eastern Time (US & Canada)          Eastern Standard Time
+(GMT-06:00) Guadalajara, Mexico City, Monterrey Central Standard Time (Mexico)
+(GMT-06:00) Central America                     Central America Standard Time
+(GMT-06:00) Saskatchewan                        Canada Central Standard Time
+(GMT-06:00) Central Time (US & Canada)          Central Standard Time
+(GMT-07:00) Chihuahua, La Paz, Mazatlan         Mountain Standard Time (Mexico)
+(GMT-07:00) Arizona                             US Mountain Standard Time
+(GMT-07:00) Mountain Time (US & Canada)         Mountain Standard Time
+(GMT-08:00) Tijuana, Baja California            Pacific Standard Time (Mexico)
+(GMT-08:00) Pacific Time (US & Canada)          Pacific Standard Time
+(GMT-09:00) Alaska                              Alaskan Standard Time
+(GMT-10:00) Hawaii                              Hawaiian Standard Time
+(GMT-11:00) Midway Island, Samoa                Samoa Standard Time
+(GMT-12:00) International Date Line West        Dateline Standard Time

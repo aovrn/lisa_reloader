@@ -16,6 +16,10 @@ const TCHAR sRegMsg[] = _T("regmsg");
 const TCHAR sWaitMsg[] = _T("waitmsg");
 const TCHAR sExit[] = _T("exit");
 const TCHAR sInput[] = _T("input");
+const TCHAR sStop[] = _T("stop");
+const TCHAR sWait[] = _T("wait");
+const TCHAR sSave[] = _T("save");
+const TCHAR sTime[] = _T("time");
 
 const TCHAR aLabel[] = _T("label");
 const TCHAR aWait[] = _T("wait");
@@ -31,12 +35,19 @@ const TCHAR aUseSend[] = _T("usesend");
 const TCHAR aAction[] = _T("action");
 const TCHAR aFlags[] = _T("flags");
 const TCHAR aHandler[] = _T("handler");
+const TCHAR aOnSuccess[] = _T("onsuccess");
 const TCHAR aOnError[] = _T("onerror");
+const TCHAR aJump[] = _T("jump");
 const TCHAR aStop[] = _T("stop");
 const TCHAR aKeyDown[] = _T("keydown");
 const TCHAR aKeyUp[] = _T("keyup");
 const TCHAR aSleep[] = _T("sleep");
 const TCHAR aCheck[] = _T("check");
+const TCHAR aName[] = _T("name");
+const TCHAR aValue[] = _T("value");
+const TCHAR aFlush[] = _T("flush");
+const TCHAR aMShift[] = _T("mshift");
+const TCHAR aTZ[] = _T("tz");
 
 const TCHAR sWidth[] = _T("width");
 const TCHAR sHeight[] = _T("height");
@@ -55,6 +66,7 @@ const TCHAR vNo[] = _T("no");
 
 Config::Config(): m_sections(NULL), m_count(0), m_allocated(0), m_current(-1), m_line(0), m_seek(FALSE)
 {
+	m_settings.state_path = NULL;
 	m_settings.width = 420;
 	m_settings.height = 450;
 	m_settings.splash = NULL;
@@ -85,6 +97,10 @@ Config::~Config()
 			if (m_sections[i].args[j].szValue2 != NULL)
 			{
 				free(m_sections[i].args[j].szValue2);
+			}
+			if (m_sections[i].args[j].szValue3 != NULL)
+			{
+				free(m_sections[i].args[j].szValue3);
 			}
 		}
 		
@@ -253,6 +269,22 @@ void Config::addSection(LPCTSTR name, unsigned long wait, unsigned long argc)
 	{
 		s.type = esec::input;
 	}
+	else if (_tcsnicmp(name, sStop, 255) == 0)
+	{
+		s.type = esec::sstop;
+	}
+	else if (_tcsnicmp(name, sWait, 255) == 0)
+	{
+		s.type = esec::swait;
+	}
+	else if (_tcsnicmp(name, sSave, 255) == 0)
+	{
+		s.type = esec::save;
+	}
+	else if (_tcsnicmp(name, sTime, 255) == 0)
+	{
+		s.type = esec::time;
+	}
 	else
 	{
 		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Unsupported section '%s'"), m_line, name);
@@ -307,6 +339,7 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	Argument& arg = section->args[section->argc];
 	arg.szValue = NULL;
 	arg.szValue2 = NULL;
+	arg.szValue3 = NULL;
 	arg.ulValue = 0;
 	arg.bValue = 0;
 
@@ -344,7 +377,7 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 			section->type != esec::setwnd;
 		if (!bInvalidArg)
 		{
-			readStrings(value, &arg.szValue, &arg.szValue2);
+			readStrings(value, &arg.szValue, &arg.szValue2, &arg.szValue3);
 			arg.type = earg::wnd;
 		}
 	}
@@ -420,11 +453,23 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 		bInvalidArg = section->type != esec::regmsg;
 		arg.type = earg::handler;
 	}
+	else if (_tcsnicmp(name, aOnSuccess, 255) == 0)
+	{
+		bInvalidArg = section->type != esec::postwnd && section->type != esec::findwnd &&
+			section->type != esec::killproc && section->type != esec::startproc &&
+			section->type != esec::setwnd;
+		arg.type = earg::onsuccess;
+	}
 	else if (_tcsnicmp(name, aOnError, 255) == 0)
 	{
 		bInvalidArg = section->type != esec::postwnd && section->type != esec::findwnd &&
-			section->type != esec::killproc && section->type != esec::startproc;
+			section->type != esec::killproc && section->type != esec::startproc &&
+			section->type != esec::setwnd;
 		arg.type = earg::onerror;
+	}
+	else if (_tcsnicmp(name, aJump, 255) == 0)
+	{
+		arg.type = earg::jump;
 	}
 	else if (_tcsnicmp(name, aStop, 255) == 0)
 	{
@@ -463,6 +508,39 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	{
 		bInvalidArg = section->type != esec::findwnd;
 		arg.type = earg::check;
+	}
+	else if (_tcsnicmp(name, aName, 255) == 0)
+	{
+		bInvalidArg = section->type != esec::save;
+		arg.type = earg::name;
+	}
+	else if (_tcsnicmp(name, aValue, 255) == 0)
+	{
+		bInvalidArg = section->type != esec::save;
+		arg.type = earg::value;
+	}
+	else if (_tcsnicmp(name, aFlush, 255) == 0)
+	{
+		bInvalidArg = section->type != esec::save;
+		if (!bInvalidArg)
+		{
+			if (!readYesNo(value, &arg.bValue)) return;
+			arg.type = earg::flush;
+		}
+	}
+	else if (_tcsnicmp(name, aMShift, 255) == 0)
+	{
+		bInvalidArg = section->type != esec::time;
+		if (!bInvalidArg)
+		{
+			if (!readULong(value, &arg.ulValue)) return;
+			arg.type = earg::mshift;
+		}
+	}
+	else if (_tcsnicmp(name, aTZ, 255) == 0)
+	{
+		bInvalidArg = section->type != esec::time;
+		arg.type = earg::tz;
 	}
 	else
 	{
@@ -526,7 +604,7 @@ void Config::addSetting(LPCTSTR name, LPCTSTR value)
 	}
 	else if (_tcsnicmp(name, sHide, 255) == 0)
 	{
-		if (!readYesNo(value, &m_settings.minimize)) return;
+		if (!readYesNo(value, &m_settings.hide)) return;
 	}
 	else if (_tcsnicmp(name, sClass, 255) == 0)
 	{
@@ -598,7 +676,7 @@ BOOL Config::readULong(LPCTSTR value, unsigned long * arg)
 	TR_END0
 }
 
-BOOL Config::readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2)
+BOOL Config::readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2, LPTSTR * arg3)
 {
 	TR_START
 
@@ -638,10 +716,11 @@ BOOL Config::readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2)
 		{
 			while (isspace(*pos))
 				++pos;
-			qval = trimQuotes(pos);
-			size_t len = (_tcslen(qval) + 1) * sizeof(TCHAR);
-			*arg2 = (TCHAR *)malloc(len);
-			_tcscpy(*arg2, qval);
+			readStrings(pos, arg2, arg3);
+			//qval = trimQuotes(pos);
+			//size_t len = (_tcslen(qval) + 1) * sizeof(TCHAR);
+			//*arg2 = (TCHAR *)malloc(len);
+			//_tcscpy(*arg2, qval);
 		}
 		else
 		{
@@ -808,11 +887,18 @@ void Config::loadConfig()
 		addError(fullName);
 	}
 
-	if (m_count == 1 && m_sections->argc == 0)
+	TCHAR * pos = _tcsrchr(fullName, _T('\\'));
+	if (pos != NULL)
 	{
-		addError(_T("Configuration file is empty."));
-		addError(fullName);
+		*pos = 0;
+		if (_tcslen(fullName) < MAX_PATH - 7)
+		{
+			m_settings.state_path = (TCHAR *)malloc((MAX_PATH + 1) * sizeof(TCHAR));
+			_tcscpy(m_settings.state_path, fullName);
+			_tcscat(m_settings.state_path, _T("\\state\\"));
+		}
 	}
+
 
 	TR_END
 }

@@ -20,12 +20,19 @@ public:
 		action,
 		flags,
 		handler,
+		onsuccess,
 		onerror,
+		jump,
 		stop,
 		keydown,
 		keyup,
 		sleep,
-		check
+		check,
+		name,
+		value,
+		flush,
+		mshift,
+		tz
 	};
 
 	enum esec
@@ -42,7 +49,11 @@ public:
 		regmsg,
 		waitmsg,
 		exitapp,
-		input
+		input,
+		sstop,
+		swait,
+		save,
+		time
 	};
 
 	struct Argument
@@ -50,6 +61,7 @@ public:
 		earg type;
 		LPTSTR szValue;
 		LPTSTR szValue2;
+		LPTSTR szValue3;
 		unsigned long ulValue;
 		BOOL bValue;
 	};
@@ -69,6 +81,7 @@ public:
 
 	struct Settings
 	{
+		LPTSTR state_path;
 		unsigned long width;
 		unsigned long height;
 		LPTSTR splash;
@@ -101,7 +114,7 @@ protected:
 	void addError(LPCTSTR value);
 	BOOL readYesNo(LPCTSTR value, BOOL * arg);
 	BOOL readULong(LPCTSTR value, unsigned long * arg);
-	BOOL readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2 = NULL);
+	BOOL readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2 = NULL, LPTSTR * arg3 = NULL);
 	TCHAR * trimQuotes(LPTSTR value);
 
 private:

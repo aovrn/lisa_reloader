@@ -2,6 +2,7 @@
 #ifndef _WINCE_API_H
 #define _WINCE_API_H
 
+// Toolhelp
 #define TH32CS_SNAPPROCESS  0x00000002
 
 typedef struct tagPROCESSENTRY32 {
@@ -31,5 +32,9 @@ extern _Process32Next Process32Next;
 
 void initWinceApi();
 void freeWinceApi();
+
+
+// Time
+LONG GetTimeZoneInformationByName(LPTIME_ZONE_INFORMATION lptzi, LPCTSTR name);
 
 #endif //_WINCE_API_H
