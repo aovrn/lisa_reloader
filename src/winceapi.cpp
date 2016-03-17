@@ -19,11 +19,13 @@ void initWinceApi()
 	Process32First = NULL;
 	Process32Next = NULL;
 
+	TCHAR buf[MSG_BUF_SIZE];
+
 	hToolhelpDLL = LoadLibrary(_T("toolhelp.dll"));
 	if(hToolhelpDLL == NULL) 
 	{
-		TCHAR buf[1024];
-		_sntprintf(buf, sizeof(buf), _T("LoadLibrary: 0x%08X; arg: toolhelp.dll"), GetLastError());
+		_sntprintf(buf, MSG_BUF_SIZE - 1, _T("LoadLibrary: 0x%08X; arg: toolhelp.dll"), GetLastError());
+		buf[MSG_BUF_SIZE - 1] = 0;
 		MessageBox(GetActiveWindow(), buf, APP_NAME, NULL);
 		exit(1);
 	};
@@ -32,7 +34,8 @@ void initWinceApi()
 	if(CreateToolhelp32Snapshot == NULL)
 	{
 		TCHAR buf[1024];
-		_sntprintf(buf, sizeof(buf), _T("GetProcAddress: 0x%08X; arg: CreateToolhelp32Snapshot"), GetLastError());
+		_sntprintf(buf, MSG_BUF_SIZE - 1, _T("GetProcAddress: 0x%08X; arg: CreateToolhelp32Snapshot"), GetLastError());
+		buf[MSG_BUF_SIZE - 1] = 0;
 		MessageBox(GetActiveWindow(), buf, APP_NAME, NULL);
 		exit(1);
 	}
@@ -41,7 +44,8 @@ void initWinceApi()
 	if(CloseToolhelp32Snapshot == NULL)
 	{
 		TCHAR buf[1024];
-		_sntprintf(buf, sizeof(buf), _T("GetProcAddress: 0x%08X; arg: CloseToolhelp32Snapshot"), GetLastError());
+		_sntprintf(buf, MSG_BUF_SIZE - 1, _T("GetProcAddress: 0x%08X; arg: CloseToolhelp32Snapshot"), GetLastError());
+		buf[MSG_BUF_SIZE - 1] = 0;
 		MessageBox(GetActiveWindow(), buf, APP_NAME, NULL);
 		exit(1);
 	}
@@ -50,7 +54,8 @@ void initWinceApi()
 	if(Process32First == NULL)
 	{
 		TCHAR buf[1024];
-		_sntprintf(buf, sizeof(buf), _T("GetProcAddress: 0x%08X; arg: Process32First"), GetLastError());
+		_sntprintf(buf, MSG_BUF_SIZE - 1, _T("GetProcAddress: 0x%08X; arg: Process32First"), GetLastError());
+		buf[MSG_BUF_SIZE - 1] = 0;
 		MessageBox(GetActiveWindow(), buf, APP_NAME, NULL);
 		exit(1);
 	}
@@ -59,7 +64,8 @@ void initWinceApi()
 	if(Process32Next == NULL)
 	{
 		TCHAR buf[1024];
-		_sntprintf(buf, sizeof(buf), _T("GetProcAddress: 0x%08X; arg: Process32Next"), GetLastError());
+		_sntprintf(buf, MSG_BUF_SIZE - 1, _T("GetProcAddress: 0x%08X; arg: Process32Next"), GetLastError());
+		buf[MSG_BUF_SIZE - 1] = 0;
 		MessageBox(GetActiveWindow(), buf, APP_NAME, NULL);
 		exit(1);
 	}

@@ -30,6 +30,7 @@ public:
 		check,
 		name,
 		value,
+		set,
 		flush,
 		mshift,
 		tz
@@ -40,6 +41,7 @@ public:
 		error,
 		listwnd,
 		postwnd,
+		repostwnd,
 		findwnd,
 		setwnd,
 		listproc,
@@ -53,7 +55,8 @@ public:
 		sstop,
 		swait,
 		save,
-		time
+		time,
+		include
 	};
 
 	struct Argument
@@ -62,6 +65,9 @@ public:
 		LPTSTR szValue;
 		LPTSTR szValue2;
 		LPTSTR szValue3;
+		LPTSTR szValueFilled;
+		LPTSTR szValueFilled2;
+		LPTSTR szValueFilled3;
 		unsigned long ulValue;
 		BOOL bValue;
 	};
@@ -81,7 +87,10 @@ public:
 
 	struct Settings
 	{
+		LPTSTR module_path;
 		LPTSTR state_path;
+		unsigned long x;
+		unsigned long y;
 		unsigned long width;
 		unsigned long height;
 		LPTSTR splash;
@@ -93,6 +102,9 @@ public:
 		LPTSTR quote;
 		BOOL second_noactivate;
 		BOOL second_noexit;
+		BOOL benchmark;
+		BOOL empty_as_null;
+		BOOL immediate_jump;
 	};
 
 	static Config * getInstance();
@@ -106,12 +118,12 @@ protected:
 	Config();
 	~Config();
 
-	void testConfig();
 	void loadConfig();
+	void loadConfig(LPCTSTR path);
 	void addSection(LPCTSTR name, unsigned long wait, unsigned long argc = 10);
 	void addArgument(Section * section, LPCTSTR name, LPCTSTR value);
 	void addSetting(LPCTSTR name, LPCTSTR value);
-	void addError(LPCTSTR value);
+	void addError(LPCTSTR format, ...);
 	BOOL readYesNo(LPCTSTR value, BOOL * arg);
 	BOOL readULong(LPCTSTR value, unsigned long * arg);
 	BOOL readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2 = NULL, LPTSTR * arg3 = NULL);
@@ -122,10 +134,11 @@ private:
 	unsigned long	m_count;
 	unsigned long	m_allocated;
 	long			m_current;
+	LPCTSTR			m_file;
 	unsigned long	m_line;
-	TCHAR			m_buf[256];
 	Settings		m_settings;
 	BOOL			m_seek;
+	BOOL			m_include;
 
 };
 

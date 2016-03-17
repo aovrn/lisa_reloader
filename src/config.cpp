@@ -6,6 +6,7 @@
 const TCHAR sError[] = _T("error");
 const TCHAR sListWnd[] = _T("listwnd");
 const TCHAR sPostWnd[] = _T("postwnd");
+const TCHAR sRepostWnd[] = _T("repostwnd");
 const TCHAR sFindWnd[] = _T("findwnd");
 const TCHAR sSetWnd[] = _T("setwnd");
 const TCHAR sListProc[] = _T("listproc");
@@ -20,6 +21,7 @@ const TCHAR sStop[] = _T("stop");
 const TCHAR sWait[] = _T("wait");
 const TCHAR sSave[] = _T("save");
 const TCHAR sTime[] = _T("time");
+const TCHAR sInclude[] = _T("include");
 
 const TCHAR aLabel[] = _T("label");
 const TCHAR aWait[] = _T("wait");
@@ -45,10 +47,13 @@ const TCHAR aSleep[] = _T("sleep");
 const TCHAR aCheck[] = _T("check");
 const TCHAR aName[] = _T("name");
 const TCHAR aValue[] = _T("value");
+const TCHAR aSet[] = _T("set");
 const TCHAR aFlush[] = _T("flush");
 const TCHAR aMShift[] = _T("mshift");
 const TCHAR aTZ[] = _T("tz");
 
+const TCHAR sX[] = _T("x");
+const TCHAR sY[] = _T("y");
 const TCHAR sWidth[] = _T("width");
 const TCHAR sHeight[] = _T("height");
 const TCHAR sSplash[] = _T("splash");
@@ -60,13 +65,20 @@ const TCHAR sSeparator[] = _T("separator");
 const TCHAR sQuote[] = _T("quote");
 const TCHAR sSecondNoActivate[] = _T("secondnoactivate");
 const TCHAR sSecondNoExit[] = _T("secondnoexit");
+const TCHAR sBenchmark[] = _T("benchmark");
+const TCHAR sEmptyAsNull[] = _T("emptyAsNull");
+const TCHAR sImmediateJump[] = _T("immediatejump");
 
 const TCHAR vYes[] = _T("yes");
 const TCHAR vNo[] = _T("no");
 
-Config::Config(): m_sections(NULL), m_count(0), m_allocated(0), m_current(-1), m_line(0), m_seek(FALSE)
+Config::Config(): m_sections(NULL), m_count(0), m_allocated(0), m_current(-1),
+	m_file(NULL), m_line(0), m_seek(FALSE), m_include(FALSE)
 {
+	m_settings.module_path = NULL;
 	m_settings.state_path = NULL;
+	m_settings.x = 0;
+	m_settings.y = 0;
 	m_settings.width = 420;
 	m_settings.height = 450;
 	m_settings.splash = NULL;
@@ -80,6 +92,9 @@ Config::Config(): m_sections(NULL), m_count(0), m_allocated(0), m_current(-1), m
 	*m_settings.quote = _T('\'');
 	m_settings.second_noactivate = FALSE;
 	m_settings.second_noexit = FALSE;
+	m_settings.benchmark = FALSE;
+	m_settings.empty_as_null = TRUE;
+	m_settings.immediate_jump = FALSE;
 }
 
 Config::~Config()
@@ -190,8 +205,7 @@ void Config::addSection(LPCTSTR name, unsigned long wait, unsigned long argc)
 		
 	if (name == NULL || _tcslen(name) == 0)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Empty section name"), m_line);
-		addError(m_buf);
+		addError(_T("%s:%d: Empty section name"), m_file, m_line);
 		return;
 	}
 
@@ -210,13 +224,13 @@ void Config::addSection(LPCTSTR name, unsigned long wait, unsigned long argc)
 	}
 
 	Section& s = m_sections[m_count];
+	m_include = FALSE;
 
 	if (_tcsnicmp(name, sError, 255) == 0)
 	{
 		if (m_count != 0)
 		{
-			_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Section '%s' cannot be defined"), m_line, name);
-			addError(m_buf);
+			addError(_T("%s:%d: Section '%s' cannot be defined"), m_file, m_line, name);
 			return;
 		}
 		s.type = esec::error;
@@ -228,6 +242,10 @@ void Config::addSection(LPCTSTR name, unsigned long wait, unsigned long argc)
 	else if (_tcsnicmp(name, sPostWnd, 255) == 0)
 	{
 		s.type = esec::postwnd;
+	}
+	else if (_tcsnicmp(name, sRepostWnd, 255) == 0)
+	{
+		s.type = esec::repostwnd;
 	}
 	else if (_tcsnicmp(name, sFindWnd, 255) == 0)
 	{
@@ -285,10 +303,14 @@ void Config::addSection(LPCTSTR name, unsigned long wait, unsigned long argc)
 	{
 		s.type = esec::time;
 	}
+	else if (_tcsnicmp(name, sInclude, 255) == 0)
+	{
+		s.type = esec::include;
+		m_include = TRUE;
+	}
 	else
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Unsupported section '%s'"), m_line, name);
-		addError(m_buf);
+		addError(_T("%s:%d: Unsupported section '%s'"), m_file, m_line, name);
 		return;
 	}
 
@@ -318,15 +340,13 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	
 	if (name == NULL || _tcslen(name) == 0)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Empty argument name"), m_line);
-		addError(m_buf);
+		addError(_T("%s:%d: Empty argument name"), m_file, m_line);
 		return;
 	}
 	
 	if (value == NULL || _tcslen(value) == 0)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Empty argument value"), m_line);
-		addError(m_buf);
+		addError(_T("%s:%d: Empty argument value"), m_file, m_line);
 		return;
 	}
 	
@@ -340,10 +360,14 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	arg.szValue = NULL;
 	arg.szValue2 = NULL;
 	arg.szValue3 = NULL;
+	arg.szValueFilled = NULL;
+	arg.szValueFilled2 = NULL;
+	arg.szValueFilled3 = NULL;
 	arg.ulValue = 0;
 	arg.bValue = 0;
 
 	BOOL bInvalidArg = FALSE;
+	TCHAR * include = NULL;
 	
 	if (_tcsnicmp(name, aLabel, 255) == 0)
 	{
@@ -374,7 +398,7 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	else if (_tcsnicmp(name, aWnd, 255) == 0)
 	{
 		bInvalidArg = section->type != esec::postwnd && section->type != esec::findwnd &&
-			section->type != esec::setwnd;
+			section->type != esec::setwnd && section->type != esec::repostwnd;
 		if (!bInvalidArg)
 		{
 			readStrings(value, &arg.szValue, &arg.szValue2, &arg.szValue3);
@@ -388,11 +412,37 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	}
 	else if (_tcsnicmp(name, aPath, 255) == 0)
 	{
-		bInvalidArg = section->type != esec::startproc;
+		bInvalidArg = section->type != esec::startproc && !m_include;
 		if (!bInvalidArg)
 		{
 			readStrings(value, &arg.szValue, &arg.szValue2);
 			arg.type = earg::path;
+			if (m_include)
+			{
+				if (*arg.szValue != '\\')
+				{
+					if (_tcslen(m_settings.module_path) + _tcslen(arg.szValue) + 1 > MAX_PATH)
+					{
+						addError(_T("%s:%d: Include path is too big"), m_file, m_line);
+						return;
+					}
+					include = (TCHAR *)malloc((MAX_PATH + 1) * sizeof(TCHAR));
+					*include = 0;
+					_tcscpy(include, m_settings.module_path);
+					_tcscat(include, arg.szValue);
+				}
+				else
+				{
+					if (_tcslen(arg.szValue) + 1 > MAX_PATH)
+					{
+						addError(_T("%s:%d: Include path is too big"), m_file, m_line);
+						return;
+					}
+					include = (TCHAR *)malloc((MAX_PATH + 1) * sizeof(TCHAR));
+					*include = 0;
+					_tcscpy(include, arg.szValue);
+				}
+			}
 		}
 	}
 	else if (_tcsnicmp(name, aMsg, 255) == 0)
@@ -457,14 +507,14 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	{
 		bInvalidArg = section->type != esec::postwnd && section->type != esec::findwnd &&
 			section->type != esec::killproc && section->type != esec::startproc &&
-			section->type != esec::setwnd;
+			section->type != esec::setwnd && section->type != esec::repostwnd;
 		arg.type = earg::onsuccess;
 	}
 	else if (_tcsnicmp(name, aOnError, 255) == 0)
 	{
 		bInvalidArg = section->type != esec::postwnd && section->type != esec::findwnd &&
 			section->type != esec::killproc && section->type != esec::startproc &&
-			section->type != esec::setwnd;
+			section->type != esec::setwnd && section->type != esec::repostwnd;
 		arg.type = earg::onerror;
 	}
 	else if (_tcsnicmp(name, aJump, 255) == 0)
@@ -519,6 +569,15 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 		bInvalidArg = section->type != esec::save;
 		arg.type = earg::value;
 	}
+	else if (_tcsnicmp(name, aSet, 255) == 0)
+	{
+		bInvalidArg = section->type != esec::save;
+		if (!bInvalidArg)
+		{
+			readStrings(value, &arg.szValue, &arg.szValue2);
+			arg.type = earg::set;
+		}
+	}
 	else if (_tcsnicmp(name, aFlush, 255) == 0)
 	{
 		bInvalidArg = section->type != esec::save;
@@ -544,17 +603,14 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 	}
 	else
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Unsupported argument '%s'"), m_line, name);
-		addError(m_buf);
+		addError(_T("%s:%d: Unsupported argument '%s'"), m_file, m_line, name);
 		return;
 	}
 	
 	if (bInvalidArg)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Unsupported argument '%s'"), m_line, name);
-		addError(m_buf);
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d:     for section '%s'"), m_line, section->name);
-		addError(m_buf);
+		addError(_T("%s:%d: Unsupported argument '%s'"), m_file, m_line, name);
+		addError(_T("%s:%d:     for section '%s'"), m_file, m_line, section->name);
 		return;
 	}
 
@@ -565,6 +621,12 @@ void Config::addArgument(Config::Section * section, LPCTSTR name, LPCTSTR value)
 
 	++(section->argc);
 
+	if (include)
+	{
+		loadConfig(include);
+		free(include);
+	}
+
 	TR_END
 }
 
@@ -574,19 +636,25 @@ void Config::addSetting(LPCTSTR name, LPCTSTR value)
 	
 	if (name == NULL || _tcslen(name) == 0)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Empty argument name"), m_line);
-		addError(m_buf);
+		addError(_T("%s:%d: Empty argument name"), m_file, m_line);
 		return;
 	}
 	
 	if (value == NULL || _tcslen(value) == 0)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Empty argument value"), m_line);
-		addError(m_buf);
+		addError(_T("%s:%d: Empty argument value"), m_file, m_line);
 		return;
 	}
 
-	if (_tcsnicmp(name, sWidth, 255) == 0)
+	if (_tcsnicmp(name, sX, 255) == 0)
+	{
+		if (!readULong(value, &m_settings.x)) return;
+	}
+	else if (_tcsnicmp(name, sY, 255) == 0)
+	{
+		if (!readULong(value, &m_settings.y)) return;
+	}
+	else if (_tcsnicmp(name, sWidth, 255) == 0)
 	{
 		if (!readULong(value, &m_settings.width)) return;
 	}
@@ -630,10 +698,21 @@ void Config::addSetting(LPCTSTR name, LPCTSTR value)
 	{
 		if (!readYesNo(value, &m_settings.second_noexit)) return;
 	}
+	else if (_tcsnicmp(name, sBenchmark, 255) == 0)
+	{
+		if (!readYesNo(value, &m_settings.benchmark)) return;
+	}
+	else if (_tcsnicmp(name, sEmptyAsNull, 255) == 0)
+	{
+		if (!readYesNo(value, &m_settings.empty_as_null)) return;
+	}
+	else if (_tcsnicmp(name, sImmediateJump, 255) == 0)
+	{
+		if (!readYesNo(value, &m_settings.immediate_jump)) return;
+	}
 	else
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Unsupported argument '%s'"), m_line, name);
-		addError(m_buf);
+		addError(_T("%s:%d: Unsupported argument '%s'"), m_file, m_line, name);
 		return;
 	}
 
@@ -646,10 +725,8 @@ BOOL Config::readYesNo(LPCTSTR value, BOOL * arg)
 
 	if(_tcsnicmp(value, vYes, 255) != 0 && _tcsnicmp(value, vNo, 255) != 0)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Unsupported value '%s'"), m_line, value);
-		addError(m_buf);
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d:     it must be 'yes' or 'no'"), m_line);
-		addError(m_buf);
+		addError(_T("%s:%d: Unsupported value '%s'"), m_file, m_line, value);
+		addError(_T("%s:%d:     it must be 'yes' or 'no'"), m_file, m_line);
 		return FALSE;
 	}
 	
@@ -665,10 +742,8 @@ BOOL Config::readULong(LPCTSTR value, unsigned long * arg)
 	
 	if(_stscanf(value, (_tcsncmp(_T("0x"), value, 2) == 0) ? _T("0x%x") : _T("%u"), arg) != 1)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Unsupported value '%s'"), m_line, value);
-		addError(m_buf);
-		_sntprintf(m_buf, sizeof(m_buf), _T("Line %d:     it must be unsigned integer"), m_line);
-		addError(m_buf);
+		addError(_T("%s:%d: Unsupported value '%s'"), m_file, m_line, value);
+		addError(_T("%s:%d:     it must be unsigned integer"), m_file, m_line);
 		return FALSE;
 	}
 
@@ -679,21 +754,17 @@ BOOL Config::readULong(LPCTSTR value, unsigned long * arg)
 BOOL Config::readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2, LPTSTR * arg3)
 {
 	TR_START
+		
+	if (*arg1 != NULL)
+	{
+		free(*arg1);
+	}
 
 	TCHAR * val = (TCHAR *)malloc((_tcslen(value) + 1) * sizeof(TCHAR));
 	_tcscpy(val, value);
 	
 	if (arg1 != NULL && arg2 != NULL)
 	{
-		if (*arg1 != NULL)
-		{
-			free(*arg1);
-		}
-		if (*arg2 != NULL)
-		{
-			free(*arg2);
-		}
-		
 		TCHAR * pos = _tcsstr(val, m_settings.separator);
 		if (pos != NULL)
 		{
@@ -717,24 +788,14 @@ BOOL Config::readStrings(LPCTSTR value, LPTSTR * arg1, LPTSTR * arg2, LPTSTR * a
 			while (isspace(*pos))
 				++pos;
 			readStrings(pos, arg2, arg3);
-			//qval = trimQuotes(pos);
-			//size_t len = (_tcslen(qval) + 1) * sizeof(TCHAR);
-			//*arg2 = (TCHAR *)malloc(len);
-			//_tcscpy(*arg2, qval);
 		}
 		else
 		{
-			*arg2 = (TCHAR *)malloc(sizeof(TCHAR));
-			*arg2[0] = 0;
+			readStrings(_T(""), arg2, arg3);
 		}
 	}
 	else if (arg1 != NULL)
 	{
-		if (*arg1 != NULL)
-		{
-			free(*arg1);
-		}
-
 		TCHAR * qval = trimQuotes(val);
 
 		size_t len = (_tcslen(qval) + 1) * sizeof(TCHAR);
@@ -767,11 +828,18 @@ TCHAR * Config::trimQuotes(LPTSTR value)
 	TR_END0
 }
 
-void Config::addError(LPCTSTR value)
+void Config::addError(LPCTSTR format, ...)
 {
 	TR_START
-
-	addArgument(m_sections, aPrint, value);
+		
+	static TCHAR m_buf[MSG_BUF_SIZE];
+		
+	va_list args;
+	va_start(args, format);
+	_vsntprintf(m_buf, MSG_BUF_SIZE - 1, format, args);
+	m_buf[MSG_BUF_SIZE - 1] = 0;
+	addArgument(m_sections, aPrint, m_buf);
+	va_end(args);
 
 	TR_END
 }
@@ -791,28 +859,51 @@ void Config::loadConfig()
 	TCHAR fullName[MAX_PATH + 1];
 	if (GetModuleFileName(NULL, fullName, MAX_PATH) == 0)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("GetModuleFileName error: 0x%08X"), GetLastError());
-		addError(m_buf);
+		addError(_T("GetModuleFileName error: 0x%08X"), GetLastError());
 		return;
 	}
 	if (_tcslen(fullName) < 5)
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("Incorrect exe path: %s"), fullName);
-		addError(m_buf);
+		addError(_T("Incorrect exe path: %s"), fullName);
 		return;
 	}
-	
-	/*LPTSTR slash = _tcsrchr(fullName,'\\');
-	if(slash)
-	{
-		*slash = 0;
-	}
-
-	_tcsncat(fullName, _T("\\LisaReloader.cfg"), MAX_PATH - _tcslen(fullName));*/
 
 	_tcscpy(fullName + _tcslen(fullName) - 4, _T(".cfg"));
 
-	FILE * f = _tfopen(fullName, _T("rt"));
+	TCHAR * pos = _tcsrchr(fullName, _T('\\'));
+	if (pos != NULL)
+	{
+		TCHAR bak = *pos;
+		*pos = 0;
+		if (_tcslen(fullName) < MAX_PATH - 7)
+		{
+			m_settings.state_path = (TCHAR *)malloc((MAX_PATH + 1) * sizeof(TCHAR));
+			_tcscpy(m_settings.state_path, fullName);
+			_tcscat(m_settings.state_path, _T("\\state\\"));
+			m_settings.module_path = (TCHAR *)malloc((MAX_PATH + 1) * sizeof(TCHAR));
+			_tcscpy(m_settings.module_path, fullName);
+			_tcscat(m_settings.module_path, _T("\\"));
+		}
+		*pos = bak;
+	}
+	
+	loadConfig(fullName);
+
+	TR_END
+}
+
+void Config::loadConfig(LPCTSTR path)
+{
+	TR_START
+
+	unsigned long old_line = m_line;
+	m_line = 0;
+
+	LPCTSTR old_file = m_file;
+	m_file = _tcsrchr(path, _T('\\'));
+	m_file = (m_file == NULL ? path : m_file + 1);
+
+	FILE * f = _tfopen(path, _T("rt"));
 	if(f)
 	{
 		TCHAR line[1024] = {0};
@@ -820,7 +911,7 @@ void Config::loadConfig()
 		LPTSTR value;
 		LPTSTR it;
 
-		while(_fgetts(line, sizeof(line), f))
+		while(_fgetts(line, 1024, f))
 		{
 			++m_line;
 
@@ -852,8 +943,7 @@ void Config::loadConfig()
 				value = _tcschr(key, '=');
 				if(value == NULL || key == value)
 				{
-					_sntprintf(m_buf, sizeof(m_buf), _T("Line %d: Incorrect line '%s'"), m_line, line);
-					addError(m_buf);
+					addError(_T("%s:%d: Incorrect line '%s'"), m_file, m_line, line);
 					continue;
 				}
 				
@@ -882,23 +972,12 @@ void Config::loadConfig()
 	}
 	else
 	{
-		_sntprintf(m_buf, sizeof(m_buf), _T("_tfopen error: 0x%08X"), GetLastError());
-		addError(m_buf);
-		addError(fullName);
+		addError(_T("_tfopen error: 0x%08X"), GetLastError());
+		addError(path);
 	}
-
-	TCHAR * pos = _tcsrchr(fullName, _T('\\'));
-	if (pos != NULL)
-	{
-		*pos = 0;
-		if (_tcslen(fullName) < MAX_PATH - 7)
-		{
-			m_settings.state_path = (TCHAR *)malloc((MAX_PATH + 1) * sizeof(TCHAR));
-			_tcscpy(m_settings.state_path, fullName);
-			_tcscat(m_settings.state_path, _T("\\state\\"));
-		}
-	}
-
+	
+	m_file = old_file;
+	m_line = old_line;
 
 	TR_END
 }
